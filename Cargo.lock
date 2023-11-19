@@ -302,6 +302,7 @@ dependencies = [
  "ordered-float",
  "path-absolutize",
  "serde",
+ "serde_json",
  "source-map",
  "temporary-annex",
 ]

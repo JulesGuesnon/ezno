@@ -166,6 +166,7 @@ pub mod interactive {
 				entry_point,
 				Default::default(),
 				None,
+				None,
 			);
 
 			add_definition_files_to_root(type_definition_files, &mut root, &mut checking_data);

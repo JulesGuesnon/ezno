@@ -22,6 +22,7 @@ fn main() {
 		},
 		None,
 		Default::default(),
+		None,
 	);
 
 	let args: Vec<_> = env::args().collect();

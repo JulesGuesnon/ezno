@@ -17,6 +17,7 @@ mod options;
 pub mod range_map;
 mod serialization;
 pub mod structures;
+pub mod tsconfig;
 mod type_mappings;
 pub mod types;
 mod utils;
@@ -39,6 +40,7 @@ use std::{
 	collections::{HashMap, HashSet},
 	path::{Path, PathBuf},
 };
+use tsconfig::Tsconfig;
 
 use types::{
 	subtyping::{check_satisfies, type_is_subtype, BasicEquality, SubTypeResult},
@@ -74,6 +76,8 @@ impl<T> ReadFromFS for T where T: Fn(&std::path::Path) -> Option<String> {}
 
 // TODO should this be pub
 pub use source_map::{SourceId, Span};
+
+use crate::tsconfig::Module;
 
 /// Contains all the modules and mappings for import statements
 ///
@@ -203,6 +207,8 @@ pub struct CheckingData<'a, FSResolver, ModuleAST: ASTImplementation> {
 	pub(crate) modules: ModuleData<'a, FSResolver, ModuleAST>,
 	/// Options for checking
 	pub(crate) options: TypeCheckOptions,
+
+	pub(crate) tsconfig: Option<Tsconfig>,
 	// pub(crate) parse_settings: parser::ParseSettings,
 
 	// pub(crate) events: EventsStore,
@@ -222,6 +228,7 @@ impl<'a, T: crate::ReadFromFS, M: ASTImplementation> CheckingData<'a, T, M> {
 		resolver: &'a T,
 		entry_point: PathBuf,
 		parse_options: M::ParseOptions,
+		tsconfig: Option<Tsconfig>,
 		existing_files: Option<MapFileStore<WithPathMap>>,
 	) -> Self {
 		// let custom_file_resolvers = HashMap::default();
@@ -241,6 +248,7 @@ impl<'a, T: crate::ReadFromFS, M: ASTImplementation> CheckingData<'a, T, M> {
 			modules,
 			types: Default::default(),
 			unimplemented_items: Default::default(),
+			tsconfig,
 		}
 	}
 
@@ -278,37 +286,51 @@ impl<'a, T: crate::ReadFromFS, M: ASTImplementation> CheckingData<'a, T, M> {
 							.files
 							.new_source_id(full_importer.to_path_buf(), content.clone());
 
-						match M::module_from_string(
+						let result = match M::module_from_string(
 							source,
 							content,
 							&checking_data.modules.parsing_options,
 						) {
-							Ok(module) => Some(Ok(environment.get_root().new_module_context(
+							Ok(module) => Ok(environment.get_root().new_module_context(
 								source,
 								module,
 								checking_data,
-							))),
-							Err(err) => Some(Err(err)),
-						}
+							)),
+							Err(err) => {
+								println!("Error");
+								Err(err)
+							}
+						};
+
+						Some(result)
 					} else {
 						None
 					}
 				}
 			}
 
-			let result = if full_importer.extension().is_some() {
-				get_module(full_importer.clone(), environment, self)
-			} else {
-				let mut result = None;
-				for ext in ["ts", "tsx", "js"] {
-					full_importer.set_extension(ext);
-					// TODO change parse options based on extension
-					result = get_module(full_importer.clone(), environment, self);
-					if result.is_some() {
-						break;
+			let result = match (
+				full_importer.extension().is_some(),
+				self.tsconfig
+					.as_ref()
+					.and_then(|c| c.module.as_ref())
+					.map(|v| v.has_explicit_file_extension())
+					.unwrap_or(false),
+			) {
+				(true, false) => get_module(full_importer.clone(), environment, self),
+				(true, true) | (false, _) => {
+					let mut result = None;
+					for ext in ["ts", "tsx", "js"] {
+						full_importer.set_extension(ext);
+						println!("{:?}", full_importer);
+						// TODO change parse options based on extension
+						result = get_module(full_importer.clone(), environment, self);
+						if result.is_some() {
+							break;
+						}
 					}
+					result
 				}
-				result
 			};
 
 			match result {
@@ -391,12 +413,14 @@ pub fn check_project<T: crate::ReadFromFS, M: ASTImplementation>(
 	resolver: T,
 	options: Option<TypeCheckOptions>,
 	parse_options: M::ParseOptions,
+	tsconfig: Option<Tsconfig>,
 ) -> (crate::DiagnosticsContainer, Result<PostCheckData<M>, MapFileStore<WithPathMap>>) {
 	let mut checking_data = CheckingData::<T, M>::new(
 		options.unwrap_or_default(),
 		&resolver,
 		entry_point,
 		parse_options,
+		tsconfig,
 		None,
 	);
 
@@ -432,6 +456,7 @@ pub fn check_project<T: crate::ReadFromFS, M: ASTImplementation>(
 		options: settings,
 		types,
 		unimplemented_items,
+		..
 	} = checking_data;
 
 	if diagnostics_container.has_error() {

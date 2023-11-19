@@ -94,6 +94,9 @@ pub(crate) struct BuildArguments {
 	// /// whether to re-build on file changes
 	// #[argh(switch)]
 	// watch: bool,
+	/// path to tsconfig
+	#[argh(option)]
+	pub tsconfig: Option<PathBuf>,
 }
 
 /// Type check project
@@ -106,6 +109,9 @@ pub(crate) struct CheckArguments {
 	/// paths to definition files
 	#[argh(option, short = 'd')]
 	pub definition_file: Option<PathBuf>,
+	/// path to tsconfig
+	#[argh(option)]
+	pub tsconfig: Option<PathBuf>,
 	/// whether to re-check on file changes
 	#[argh(switch)]
 	pub watch: bool,
@@ -167,6 +173,7 @@ pub fn run_cli<T: crate::ReadFromFS, U: crate::WriteToFS, V: crate::CLIInputReso
 				&output_path,
 				crate::commands::BuildConfig { strip_whitespace: build_config.minify },
 				None,
+				build_config.tsconfig.as_deref(),
 			);
 			match output {
 				Ok(BuildOutput { diagnostics, fs, outputs }) => {
@@ -186,9 +193,13 @@ pub fn run_cli<T: crate::ReadFromFS, U: crate::WriteToFS, V: crate::CLIInputReso
 		}
 		CompilerSubCommand::ASTExplorer(mut repl) => repl.run(read_file, cli_input_resolver),
 		CompilerSubCommand::Check(check_arguments) => {
-			let CheckArguments { input, watch: _, definition_file } = check_arguments;
-			let (diagnostics, _others) =
-				crate::commands::check(&read_file, &input, definition_file.as_deref());
+			let CheckArguments { input, watch: _, definition_file, tsconfig } = check_arguments;
+			let (diagnostics, _others) = crate::commands::check(
+				&read_file,
+				&input,
+				definition_file.as_deref(),
+				tsconfig.as_deref(),
+			);
 
 			let fs = match _others {
 				Ok(data) => data.module_contents,

@@ -1,4 +1,4 @@
-use checker::{DiagnosticsContainer, PostCheckData};
+use checker::{tsconfig::Tsconfig, DiagnosticsContainer, PostCheckData};
 use parser::{
 	source_map::{MapFileStore, WithPathMap},
 	ASTNode, ParseOptions, ToStringOptions,
@@ -6,6 +6,7 @@ use parser::{
 use serde::Deserialize;
 use std::{
 	collections::HashSet,
+	fs,
 	path::{Path, PathBuf},
 };
 
@@ -15,6 +16,7 @@ pub fn check<T: crate::ReadFromFS>(
 	read_from_filesystem: &T,
 	input: &Path,
 	type_definition_module: Option<&Path>,
+	tsconfig_path: Option<&Path>,
 ) -> (checker::DiagnosticsContainer, Result<EznoCheckerData, MapFileStore<WithPathMap>>) {
 	let definitions = if let Some(tdm) = type_definition_module {
 		HashSet::from_iter(std::iter::once(tdm.into()))
@@ -30,6 +32,16 @@ pub fn check<T: crate::ReadFromFS>(
 		}
 	};
 
+	let tsconfig = tsconfig_path.map(|p| {
+		let config = fs::read_to_string(p).unwrap_or(String::from("{}"));
+
+		let parsed = serde_json::from_str(&config).unwrap();
+
+		Tsconfig::new(parsed)
+	});
+
+	println!("TS CONFIG: {:?}", tsconfig);
+
 	let type_check_options = None;
 	let parsing_options = ParseOptions::default();
 
@@ -39,6 +51,7 @@ pub fn check<T: crate::ReadFromFS>(
 		read_from_fs,
 		type_check_options,
 		parsing_options,
+		tsconfig,
 	)
 }
 
@@ -83,9 +96,11 @@ pub fn build<T: crate::ReadFromFS>(
 	output_path: &Path,
 	config: BuildConfig,
 	transformers: Option<EznoParsePostCheckVisitors>,
+	tsconfig_path: Option<&Path>,
 ) -> Result<BuildOutput, FailedBuildOutput> {
 	// TODO parse settings + non_standard_library & non_standard_syntax
-	let (diagnostics, data_and_module) = check(fs_resolver, input_path, type_definition_module);
+	let (diagnostics, data_and_module) =
+		check(fs_resolver, input_path, type_definition_module, tsconfig_path);
 
 	match data_and_module {
 		Ok(mut data) => {
